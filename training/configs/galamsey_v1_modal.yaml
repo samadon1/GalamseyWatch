@@ -1,0 +1,79 @@
+# GalamseyWatch v1 — real training run config for Modal H100.
+#
+# Runs AFTER:
+#   - prepare_v1_dataset_modal.py has populated /galamsey/data/v1/
+#   - configs/galamsey_probe.yaml has been run to confirm batch=8 full-FT
+#     fits on H100 and the per-step time is within expected range
+#
+# Expected cost per run: ~$8 (≈ 2 hours on H100 at $4/hr).
+# Expected loss trajectory: see ARCHITECTURE.md §10 open questions.
+#
+# Invoke from the leap-finetune clone directory:
+#     cd training/reference/leap-finetune
+#     uv run leap-finetune /Users/mac/Downloads/GalamseyWatch/training/configs/galamsey_v1_modal.yaml
+#
+# Results: checkpoints in the `galamsey` Modal volume under outputs/.
+# Retrieve with: modal volume get galamsey outputs/<run-name> ./local-outputs
+
+project_name: "galamsey-v1"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v1/galamsey_v1_description_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01                  # leap-finetune requires (0, 1) exclusive even though we use the separate eval JSONL via `benchmarks:`
+  image_root: "/galamsey/data/v1/images"
+  # limit: 500                     # uncomment for a faster iteration run
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 8   # confirmed safe by galamsey_probe.yaml
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true              # step-0 baseline so we can measure base model vs fine-tuned
+  eval_strategy: "epoch"           # run benchmarks at step 0 (via eval_on_start) and at end of each epoch
+                                   # NB: `eval_strategy: "no"` silently disables eval_on_start too — do not use
+  save_strategy: "epoch"           # save once per epoch (3 checkpoints)
+  logging_steps: 10
+  # tracker: "trackio"             # uncomment + set trackio_space_id to enable free HF-hosted tracking
+  # trackio_space_id: "samwell/galamseywatch-v1"
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false                  # full fine-tune — 450M is small enough, LoRA was underpowered in smoke test
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v1/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v1/galamsey_v1_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300                   # subsample eval for cheaper benchmarking
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v1/galamsey_v1_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v1/galamsey_v1_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25          # looser threshold — galamsey pits may span only 2-5 pixels
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v1"
+  gpu: "H100"
+  timeout: 14400                   # 4 hours — 2x our expected runtime as a safety margin
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false                    # stream logs to local terminal

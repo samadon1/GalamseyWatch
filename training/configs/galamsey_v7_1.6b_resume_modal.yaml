@@ -1,0 +1,68 @@
+# GalamseyWatch v7 RESUME — continues from epoch-1 checkpoint after network drop.
+#
+# Changes from the original v7 config:
+#   1. resume_from_checkpoint: "latest" — picks up from e1s1477
+#   2. detach: true — job continues running even if local client disconnects
+#      Monitor with: modal app logs galamsey-v7-1p6b-resume
+#      Or check the Modal dashboard
+
+project_name: "galamsey-v7-1p6b"
+model_name: "lfm2.5-VL-1.6B"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v7/galamsey_v7_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/v7/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 1e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  resume_from_checkpoint: "/galamsey/lfm2.5-VL-1.6B-vlm_sft-galamsey_v-all-lr1em05-w0p0-no_lora-20260416_110230/lfm2.5-VL-1.6B-vlm_sft-galamsey_v-all-lr1em05-w0p0-no_lora-e1s1477-20260416_110230"
+  eval_on_start: false               # skip step-0 benchmark on resume — we already have it
+  eval_strategy: "steps"
+  eval_steps: 999999
+  save_strategy: "epoch"
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v7/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v7/galamsey_v7_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v7/galamsey_v7_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v7/galamsey_v7_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v7-1p6b-resume"
+  gpu: "H100"
+  timeout: 14400
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: true                       # CRITICAL: job survives local network drops

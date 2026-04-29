@@ -1,0 +1,82 @@
+# GalamseyWatch v2 — multi-task training with enriched descriptions + grounding.
+#
+# What changed from v1:
+#   1. Trains on the shuffled multi-task JSONL (5,966 samples = 2,983 description
+#      + 2,983 grounding), not just description (2,983). 2x training signal.
+#   2. Description strings are now varied per patch via the seeding bug fix
+#      in galamseywatch/masks.py — 1,676 unique descriptions across training
+#      vs 2 in v1. See ARCHITECTURE.md §3.7.j.
+#   3. eval_strategy: "epoch" — benchmarks actually fire at each epoch + on_start.
+#      v1's "no" silently disabled eval_on_start too.
+#   4. All paths point at /galamsey/data/v2/ instead of /v1/.
+#
+# Expected runtime: ~25-30 min on H100 (twice the samples + real benchmarks at
+#   start + after each of 3 epochs = 4 benchmark cycles of ~3 min each).
+# Expected cost: ~$2 total.
+#
+# Invoke from the leap-finetune clone directory:
+#     cd training/reference/leap-finetune
+#     uv run leap-finetune /Users/mac/Downloads/GalamseyWatch/training/configs/galamsey_v2_modal.yaml
+
+project_name: "galamsey-v2"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v2/galamsey_v2_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01                  # tiny auto-split — real eval comes from benchmarks block
+  image_root: "/galamsey/data/v2/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 8   # confirmed by the v1 timing probe
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true              # step-0 baseline before any training
+  # eval_strategy: "epoch"         # (previous setting — fires 4 total cycles, ~72 min of eval time)
+  eval_strategy: "steps"           # cheap eval: fires only at step 0 via eval_on_start, then never again
+  eval_steps: 999999               # effectively "never fire during training"
+  # Final-checkpoint eval is done via scripts/eyeball_eval_v2_modal.py — see ARCHITECTURE.md §3.7.k
+  # Savings: ~$3.60 per run (3 benchmark cycles × 18 min × $4/hr).
+  save_strategy: "epoch"           # one checkpoint per epoch
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false                  # full fine-tune — matches v1 for a clean comparison
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v2/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v2/galamsey_v2_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v2/galamsey_v2_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v2/galamsey_v2_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v2"
+  gpu: "H100"
+  timeout: 14400                   # 4 hours — 2x expected runtime as safety margin
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

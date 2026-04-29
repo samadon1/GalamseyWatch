@@ -1,0 +1,113 @@
+# =====================================================================
+# OS / editor cruft
+# =====================================================================
+.DS_Store
+._*
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =====================================================================
+# Environment / secrets
+# =====================================================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# =====================================================================
+# Python (orchestrator/, training/)
+# =====================================================================
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+
+# uv writes uv.lock — that one IS committed; everything else uv touches is local.
+
+# =====================================================================
+# Node / Next.js (app/)
+# =====================================================================
+node_modules/
+.next/
+.turbo/
+out/
+build/
+.vercel/
+*.tsbuildinfo
+
+# =====================================================================
+# Jupyter (training/notebooks/)
+# =====================================================================
+.ipynb_checkpoints/
+
+# =====================================================================
+# Project-specific
+# =====================================================================
+
+# Model checkpoints (~1 GB each). Fetch via:
+#   huggingface-cli download samwell/galamsey-v9-e3 --local-dir orchestrator/checkpoints/galamsey-v9-e3
+# or pull from the Modal training volume.
+orchestrator/checkpoints/
+
+# Hugging Face cache (in case it leaks into the workdir)
+.cache/
+
+# Training artifacts (large; not source)
+outputs/
+training/outputs/
+# ~10 GB of intermediate checkpoints + HF cache; not source.
+training/models/
+# SmallMinesDS gets fetched from `ellaampy/SmallMinesDS` on HF when needed.
+training/data/
+
+# Working drafts kept local — not committed to the public repo.
+ARCHITECTURE.md
+AGENTIC_EO.md
+OVERVIEW.md
+
+# AI-assistant config files — kept locally for ongoing work, not for the public repo.
+AGENTS.md
+CLAUDE.md
+
+# In-progress UI drafts and stylesheet backups
+*.backup
+app/src/app/landing_ref.tsx
+
+# App-side scratch / test scripts and demo assets — local-only
+app/scripts/
+app/public/demo_pack/
+
+# Training notebooks and the dev README — kept local for iteration.
+training/notebooks/
+training/README.md
+
+# Vendored references — separate upstream git repos, not part of this codebase.
+# The orchestrator hits DPhi's hosted SimSat (Cloud Run) by default; clone the
+# repo locally only if you want the reference simulator running on your box:
+#   git clone https://github.com/DPhi-Space/SimSat
+SimSat/
+training/reference/
+
+# Logs
+*.log

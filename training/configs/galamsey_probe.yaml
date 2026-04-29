@@ -1,0 +1,56 @@
+# GalamseyWatch — cheap timing probe.
+#
+# Purpose: measure real per-step wall-clock time under the v1 training
+# configuration (batch=8, full fine-tune) BEFORE committing ~$8 to the full
+# training run. Catches OOM, unexpected slowness, and config typos in ~3 min
+# for ~$0.20 of Modal credit.
+#
+# Differences from the real v1 config:
+#   - max_steps: 50  (instead of ~1,425)
+#   - NO benchmarks  (skip the expensive autoregressive eval loop)
+#   - save_strategy: "no"  (no need for checkpoints)
+#   - Uses a small dataset limit so we don't even need the full data loader
+#     warmed up — just measure forward/backward timing at batch=8
+#
+# Run AFTER `prepare_v1_dataset_modal.py` has populated /galamsey/data/v1/:
+#     uv run leap-finetune configs/galamsey_probe.yaml
+#
+# Expected output: ~50 logged loss lines with `it/s` rates. Read the per-step
+# time from the tqdm bar (e.g. "2.1 s/it") and plug into the cost estimate:
+#     total_steps × per_step_sec / 3600 × $4/hr = predicted cost
+
+project_name: "galamsey-probe"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v1/galamsey_v1_description_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01                 # keep eval slice minimal
+  image_root: "/galamsey/data/v1/images"
+  limit: 256                       # use just enough patches to exercise batch=8 at >1 step
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 1
+  per_device_train_batch_size: 8   # the value the v1 run will use — what we're probing
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.0                # no warmup for a probe — we only care about hot-loop timing
+  logging_steps: 1                 # log every step so we see the tqdm bar evolving
+  save_strategy: "no"              # no checkpoint saving
+  eval_strategy: "no"              # no eval — probe is pure training-loop timing
+  max_steps: 50                    # hard cap
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false                  # full fine-tune — same as v1
+
+modal:
+  app_name: "galamsey-probe"
+  gpu: "H100"
+  timeout: 1200                    # 20 min cap — if it runs longer than this, something is wrong
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

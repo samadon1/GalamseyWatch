@@ -1,0 +1,79 @@
+# GalamseyWatch v3 — multi-task training + single-pit oversampling + cheap eval.
+#
+# What changed from v2:
+#   1. Points at /galamsey/data/v3/ (built by prepare_v3_dataset_modal.py) —
+#      training set now has ~3x more single-pit positives to fix v2's
+#      single-pit false-negative failure mode (§3.7.l).
+#   2. eval_strategy: "steps" + eval_steps: 999999 so only eval_on_start fires.
+#      Saves ~$3.60 per run vs v2's "epoch" setting which burned 4 benchmark
+#      cycles. See ARCHITECTURE.md §3.7.k for the cost math.
+#   3. Still multi-task (description + grounding shuffled) since that worked
+#      well in v2 — grounding output is a clear improvement over v1.
+#
+# Expected runtime: ~25-30 min (down from v2's 1h 23m because we stripped the
+#   2 mid-training benchmark cycles).
+# Expected cost: ~$1.80 (down from v2's ~$5.40).
+#
+# Invoke from the leap-finetune clone directory:
+#     cd training/reference/leap-finetune
+#     uv run leap-finetune /Users/mac/Downloads/GalamseyWatch/training/configs/galamsey_v3_modal.yaml
+
+project_name: "galamsey-v3"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v3/galamsey_v3_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01                  # tiny auto-split — we use the standalone eyeball eval for real comparison
+  image_root: "/galamsey/data/v3/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 8
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true              # step-0 baseline (base model vs single-pit-aware v3)
+  eval_strategy: "steps"           # fire eval only via eval_on_start — saves ~$3.60
+  eval_steps: 999999               # effectively never fires during training
+  save_strategy: "epoch"           # one checkpoint per epoch (3 total)
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false                  # full fine-tune, consistent with v1/v2
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v3/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v3/galamsey_v3_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v3/galamsey_v3_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v3/galamsey_v3_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v3"
+  gpu: "H100"
+  timeout: 7200                    # 2 hours — well above expected ~30 min
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

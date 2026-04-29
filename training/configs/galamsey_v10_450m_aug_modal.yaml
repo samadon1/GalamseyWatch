@@ -1,0 +1,62 @@
+# GalamseyWatch v10 — 450M WebGPU production model.
+#
+# 4× augmentation + filtered bboxes + RGB+SWIR multi-image.
+# This is THE model we deploy in the browser via WebGPU.
+
+project_name: "galamsey-v10-production"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v10/galamsey_v10_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/v10/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 5
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: false
+  eval_strategy: "steps"
+  eval_steps: 999999
+  save_strategy: "epoch"
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v10/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v10/galamsey_v10_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v10/galamsey_v10_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v10/galamsey_v10_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v10-450m-aug"
+  gpu: "H200"
+  timeout: 25200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: true

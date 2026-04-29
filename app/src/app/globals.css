@@ -1,0 +1,413 @@
+@import "tailwindcss" source(none);
+@source "../**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-poppins);
+  --font-roboto: var(--font-roboto);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  /* AETHER Brand Colors */
+  --color-aether-blue: #1962D1;
+  --color-aether-text: #223344;
+  --color-aether-input-bg: #F6F6FB;
+  --color-aether-input-border: #E5EEF9;
+  --color-aether-placeholder: #8A94A6;
+  --color-aether-card-bg: #F5F6F8;
+  --color-aether-icon-blue: #5186EE;
+  --color-aether-icon-blue-bg: #E8EFFF;
+  --color-aether-icon-green: #3CB878;
+  --color-aether-icon-green-bg: #E5F7ED;
+  --color-aether-icon-purple: #7747D9;
+  --color-aether-icon-purple-bg: #F3EAFD;
+  --color-aether-pill-bg: #E9EDF5;
+  --color-aether-main-bg: #F1F2F7;
+  --color-aether-sidebar-bg: #F1F2F7;
+  --color-aether-border-line: #C8CBD9;
+  --color-aether-table-header-bg: #D9D9D9;
+
+  /* Dashboard Hardcoded Mappings */
+  --color-aether-text-dark: #1A202C;
+  --color-aether-text-muted: #4A5568;
+  --color-aether-text-light: #718096;
+  --color-aether-icon-light: #A0AEC0;
+  --color-aether-border: #E5E9F0;
+  --color-aether-bg-hover: #F9FAFB;
+  --color-aether-bg-light: #F7FAFC;
+  --color-aether-status-red: #E53E3E;
+  --color-aether-status-red-bg: #FFF5F5;
+  --color-aether-status-yellow: #D69E2E;
+  --color-aether-status-yellow-bg: #FFFFF0;
+  --color-aether-status-green: #3CB878;
+  --color-aether-status-green-bg: #E5F7ED;
+  --color-aether-blue-hover: #1553B1;
+  
+  /* Leak Grade Colors */
+  --color-grade-1: #EF4444;
+  --color-grade-2: #EAB308;
+  --color-grade-3: #10B981;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+
+  /* Chart Specific Colors (Moved to root for Recharts compatibility) */
+  --color-castIron: #1962D1;
+  --color-copper: #5186EE;
+  --color-plastic: #90CDF4;
+  --color-steel: #E2E8F0;
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  /* AETHER Dark Mode Colors */
+  --color-aether-blue: #4B9FFF;
+  --color-aether-text: #E2E8F0;
+  --color-aether-input-bg: #2D3748;
+  --color-aether-input-border: #4A5568;
+  --color-aether-placeholder: #A0AEC0;
+  --color-aether-card-bg: #2D3748;
+  --color-aether-icon-blue: #63B3FF;
+  --color-aether-icon-blue-bg: #1E3A5F;
+  --color-aether-icon-green: #48BB78;
+  --color-aether-icon-green-bg: #1C4532;
+  --color-aether-icon-purple: #9F7AEA;
+  --color-aether-icon-purple-bg: #322659;
+  --color-aether-pill-bg: #4A5568;
+  --color-aether-main-bg: #1F2124;
+  --color-aether-sidebar-bg: #171923;
+  --color-aether-border-line: #4A5568;
+  --color-aether-table-header-bg: #2D3748;
+  --color-aether-text-dark: #F7FAFC;
+  --color-aether-text-muted: #A0AEC0;
+  --color-aether-text-light: #CBD5E0;
+  --color-aether-icon-light: #718096;
+  --color-aether-border: #4A5568;
+  --color-aether-bg-hover: #2D3748;
+  --color-aether-bg-light: #2D3748;
+  --color-aether-status-red: #FC8181;
+  --color-aether-status-red-bg: #742A2A;
+  --color-aether-status-yellow: #F6E05E;
+  --color-aether-status-yellow-bg: #744210;
+  --color-aether-status-green: #68D391;
+  --color-aether-status-green-bg: #1C4532;
+  --color-aether-blue-hover: #63B3FF;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Hide default cursor when custom cursor is active */
+  @media (pointer: fine) {
+    .cursor-none,
+    .cursor-none * {
+      cursor: none !important;
+    }
+  }
+}
+
+/* Noise texture using SVG filter */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  width: 100%;
+  height: 100%;
+}
+
+/* Custom Leaflet Tooltip styles - Remove all default Leaflet styling */
+.leaflet-tooltip.custom-tooltip,
+.leaflet-tooltip.custom-leak-tooltip,
+.leaflet-tooltip.custom-dsa-tooltip,
+.leaflet-tooltip.custom-spatial-tooltip,
+.leaflet-tooltip.custom-grid-tooltip {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  opacity: 1 !important;
+}
+
+/* Remove the tooltip arrow/pointer for all directions */
+.leaflet-tooltip.custom-tooltip::before,
+.leaflet-tooltip.custom-leak-tooltip::before,
+.leaflet-tooltip.custom-dsa-tooltip::before,
+.leaflet-tooltip.custom-spatial-tooltip::before,
+.leaflet-tooltip.custom-grid-tooltip::before {
+  display: none !important;
+  border: none !important;
+  background: none !important;
+}
+
+/* Ensure proper z-index for map panes to fix hover issues */
+.leaflet-pane {
+  z-index: auto;
+}
+
+.leaflet-overlay-pane {
+  z-index: 400;
+}
+
+.leaflet-marker-pane {
+  z-index: 600;
+}
+
+.leaflet-tooltip-pane {
+  z-index: 650;
+}
+
+.leaflet-popup-pane {
+  z-index: 700;
+}
+
+/* Custom Leaflet Popup styles - strip default chrome */
+.leaflet-popup.custom-leak-popup .leaflet-popup-content-wrapper,
+.leaflet-popup.custom-dsa-popup .leaflet-popup-content-wrapper,
+.leaflet-popup.custom-spatial-popup .leaflet-popup-content-wrapper,
+.leaflet-popup.custom-grid-popup .leaflet-popup-content-wrapper {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup.custom-leak-popup .leaflet-popup-content,
+.leaflet-popup.custom-dsa-popup .leaflet-popup-content,
+.leaflet-popup.custom-spatial-popup .leaflet-popup-content,
+.leaflet-popup.custom-grid-popup .leaflet-popup-content {
+  margin: 0 !important;
+  line-height: inherit !important;
+}
+
+.leaflet-popup.custom-leak-popup .leaflet-popup-tip-container,
+.leaflet-popup.custom-dsa-popup .leaflet-popup-tip-container,
+.leaflet-popup.custom-spatial-popup .leaflet-popup-tip-container,
+.leaflet-popup.custom-grid-popup .leaflet-popup-tip-container {
+  display: none !important;
+}
+
+.leaflet-popup.custom-leak-popup .leaflet-popup-close-button,
+.leaflet-popup.custom-dsa-popup .leaflet-popup-close-button,
+.leaflet-popup.custom-spatial-popup .leaflet-popup-close-button,
+.leaflet-popup.custom-grid-popup .leaflet-popup-close-button {
+  z-index: 10;
+  top: -8px !important;
+  right: -8px !important;
+  background-color: white !important;
+  border: 1px solid #E5E9F0 !important;
+  color: #4A5568 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  width: 20px !important;
+  height: 20px !important;
+  line-height: 18px !important;
+  border-radius: 50% !important;
+  text-align: center;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+  opacity: 0.8;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.leaflet-popup.custom-leak-popup .leaflet-popup-close-button:hover,
+.leaflet-popup.custom-dsa-popup .leaflet-popup-close-button:hover,
+.leaflet-popup.custom-spatial-popup .leaflet-popup-close-button:hover,
+.leaflet-popup.custom-grid-popup .leaflet-popup-close-button:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+/* Hide hover tooltips when a popup is pinned open */
+.leaflet-map-pane:has(.leaflet-popup) .leaflet-tooltip {
+  display: none !important;
+}
+
+/* ── Marker Cluster Styles ── */
+.aether-cluster-icon {
+  background: transparent !important;
+  border: none !important;
+}
+
+.aether-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-family: var(--font-sans), sans-serif;
+  box-shadow: 0 2px 8px rgba(25, 98, 209, 0.35);
+  transition: transform 0.2s ease;
+}
+
+.aether-cluster:hover {
+  transform: scale(1.12);
+}
+
+.aether-cluster-small {
+  width: 36px;
+  height: 36px;
+  font-size: 12px;
+  background: rgba(25, 98, 209, 0.75);
+  border: 3px solid rgba(25, 98, 209, 0.3);
+}
+
+.aether-cluster-medium {
+  width: 42px;
+  height: 42px;
+  font-size: 13px;
+  background: rgba(25, 98, 209, 0.82);
+  border: 4px solid rgba(25, 98, 209, 0.3);
+}
+
+.aether-cluster-large {
+  width: 48px;
+  height: 48px;
+  font-size: 14px;
+  background: rgba(25, 98, 209, 0.9);
+  border: 5px solid rgba(25, 98, 209, 0.3);
+}
+
+/* ── Search Highlight Animation ── */
+@keyframes searchHighlightPulse {
+  0% { box-shadow: 0 0 0 0 rgba(25, 98, 209, 0.4); }
+  40% { box-shadow: 0 0 0 6px rgba(25, 98, 209, 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(25, 98, 209, 0); }
+}
+
+.search-highlight {
+  animation: searchHighlightPulse 1s ease-out 2;
+  border-radius: 12px;
+  scroll-margin-top: 24px;
+}
+
+/* Thin dark scrollbar for the detection sidebar — keeps the 28rem panel
+   visually balanced (full-width scrollbar would eat ~15px of right padding). */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(245, 197, 24, 0.15);
+  border-radius: 3px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 197, 24, 0.3);
+}
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(245, 197, 24, 0.2) transparent;
+}

@@ -1,0 +1,38 @@
+[project]
+name = "galamseywatch-training"
+version = "0.1.0"
+description = "Fine-tuning LFM2.5-VL-450M on SmallMinesDS for galamsey detection in southwestern Ghana."
+requires-python = ">=3.12,<3.14"  # upper bound: leap-finetune's `ray==2.48.0` dep has no cp314 wheels
+dependencies = [
+    # Matches Liquid's satellite-vlm example — used to launch Modal data-prep
+    # jobs and interact with Hugging Face.
+    "huggingface_hub",
+    "modal>=0.73",
+    "tqdm",
+
+    # SmallMinesDS loading and geospatial preprocessing.
+    # datasets: load_dataset("ellaampy/SmallMinesDS")
+    # rasterio: read multi-band TIFFs when SmallMinesDS ships raw bands
+    # numpy / scipy: percentile stretch, connected-component mask analysis
+    # pillow: PNG encoding of the stretched composites
+    "datasets>=3.0",
+    "rasterio>=1.3",
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "pillow>=11.0",
+
+    # Notebook / exploration tooling — used only by the files in notebooks/.
+    # Scripts and the Modal launchers do not depend on these.
+    "jupyterlab>=4.0",
+    "ipykernel>=6.29",
+    "matplotlib>=3.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Tiny local package — primitives imported by both scripts and notebooks so
+# there is a single source of truth for every preprocessing step.
+packages = ["galamseywatch"]

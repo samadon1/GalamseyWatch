@@ -1,0 +1,48 @@
+# GalamseyWatch end-to-end smoke test config.
+#
+# Purpose: prove the full pipeline works — container build, model download,
+# JSONL data loading, image loading, forward pass, backward pass, LoRA adapter
+# training — using 20 samples and 10 training steps. Not meant to produce a
+# useful model. Catches infrastructure bugs before we invest in the real run.
+#
+# Run after populating the Modal volume via:
+#   uv run python scripts/prepare_tiny_dataset_modal.py
+#
+# Then:
+#   uv run leap-finetune configs/galamsey_tiny.yaml
+
+project_name: "galamsey-tiny-smoke"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/galamsey_tiny_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.1
+  image_root: "/galamsey/data/images"
+  limit: 20
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
+  logging_steps: 1             # log every single step so we see loss immediately
+  save_strategy: "no"          # no checkpoint saving — this is a smoke test
+  eval_strategy: "no"          # no evaluation — keep it fast
+  max_steps: 10                # cap at 10 steps regardless of epoch math
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: true               # LoRA adapter, not full fine-tune — trains in seconds
+  r: 8
+  lora_alpha: 16
+
+modal:
+  app_name: "galamsey-tiny"
+  gpu: "H100"
+  timeout: 1800                # 30 min cap — generous for first-run container build
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false                # stream logs to local terminal

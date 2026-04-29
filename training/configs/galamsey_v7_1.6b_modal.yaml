@@ -1,0 +1,71 @@
+# GalamseyWatch v7 — LFM2.5-VL-1.6B + augmented RGB+SWIR multi-image.
+#
+# Two changes from v5:
+#   1. Model: LFM2.5-VL-1.6B (3.5× larger than 450M)
+#   2. Data: 2× augmentation (original + horizontal flip) = ~12K multi-task samples
+#
+# batch=2 with grad_accum=4 (effective batch=8) to fit 1.6B in H100 80GB VRAM.
+# Cheap eval config (eval_strategy: steps, only eval_on_start fires).
+#
+# Expected cost: ~$6-8 (larger model = slower per step).
+# Expected runtime: ~1-2 hours.
+
+project_name: "galamsey-v7-1p6b"
+model_name: "lfm2.5-VL-1.6B"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v7/galamsey_v7_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/v7/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 2   # reduced for 1.6B model memory
+  gradient_accumulation_steps: 4   # effective batch = 2 × 4 = 8
+  learning_rate: 1e-5              # slightly lower LR for larger model stability
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true
+  eval_strategy: "steps"
+  eval_steps: 999999
+  save_strategy: "epoch"
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false                  # full fine-tune to match v2-v5
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v7/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v7/galamsey_v7_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v7/galamsey_v7_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v7/galamsey_v7_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v7-1p6b"
+  gpu: "H100"
+  timeout: 14400                   # 4 hours — generous for first-run 1.6B container build
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

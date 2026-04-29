@@ -1,0 +1,69 @@
+# GalamseyWatch v1 — non-Modal config for Lightning AI / Colab / local GPU runs.
+#
+# Mirrors Liquid's vrsbench_multitask.yaml (non-Modal variant). Use this file
+# when running `leap-finetune configs/galamsey_v1.yaml` from inside a notebook
+# or a terminal session on Lightning AI, Colab, or any Linux GPU box.
+#
+# For the Modal-based path, see `galamsey_v1_modal.yaml` — it is identical to
+# this file plus a `modal:` block at the bottom.
+#
+# DRAFT — paths assume the master notebook (notebooks/00_master.ipynb) has
+# already run the data prep cells and written JSONL into ./data/.
+
+project_name: "galamsey-v1"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "./data/galamsey_description_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.05
+  image_root: "./data/images"
+  # Uncomment during debug to train on a small subset:
+  # limit: 200
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true          # run benchmarks at step 0 to establish a base-model baseline
+  eval_strategy: "steps"
+  eval_steps: 500
+  save_strategy: "steps"
+  save_steps: 500
+  logging_steps: 20
+  # tracker: "wandb"           # uncomment once a wandb API key is available
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false              # full fine-tune — 450M is small enough. Flip to true for LoRA.
+  # r: 16
+  # lora_alpha: 32
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "./data/images"
+  benchmarks:
+    - name: "galamsey_description_eval"
+      path: "./data/galamsey_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "./data/galamsey_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "./data/galamsey_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25      # looser — galamsey pits may span only 2–5 pixels
+      max_new_tokens: 256
+      limit: 300

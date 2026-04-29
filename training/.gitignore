@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.pyc
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# External reference repos (Liquid AI cookbook + leap-finetune framework)
+# Cloned for reference only, not part of our code — pull again if needed with:
+#   git clone --depth 1 https://github.com/Liquid4All/cookbook.git training/reference/cookbook
+#   git clone --depth 1 https://github.com/Liquid4All/leap-finetune.git training/reference/leap-finetune
+reference/
+
+data/smallminesds/
+data/*.parquet
+data/*.tiff
+data/*.tif
+data/*.zip
+
+outputs/checkpoints/
+outputs/logs/
+outputs/*.safetensors
+outputs/*.pt
+outputs/wandb/
+
+.env
+.env.local
+modal.toml

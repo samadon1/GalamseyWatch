@@ -1,0 +1,72 @@
+# GalamseyWatch v5 — multi-image (RGB + SWIR) ablation.
+#
+# Each training sample has TWO images: an RGB composite and a SWIR false-color
+# composite of the same patch. The VLM sees both simultaneously and must
+# integrate information from both spectral views.
+#
+# v2 (SWIR only): IoU 0.159
+# v4 (RGB only):  IoU 0.196
+# v5 (RGB + SWIR): ???
+#
+# Expected cost: ~$2-3 (training may be ~1.5x slower per step due to 2 images,
+# but cheap eval config saves the benchmark overhead).
+
+project_name: "galamsey-v5-multiimage"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v5/galamsey_v5_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/v5/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4   # reduced from 8 → 4 because each sample has 2 images (2x memory)
+  gradient_accumulation_steps: 2   # effective batch = 4 × 2 = 8 (same as v4)
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.03
+  eval_on_start: true
+  eval_strategy: "steps"
+  eval_steps: 999999
+  save_strategy: "epoch"
+  logging_steps: 10
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: false
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v5/images"
+  benchmarks:
+    - name: "galamsey_description"
+      path: "/galamsey/data/v5/galamsey_v5_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v5/galamsey_v5_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v5/galamsey_v5_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v5-multiimage"
+  gpu: "H100"
+  timeout: 7200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

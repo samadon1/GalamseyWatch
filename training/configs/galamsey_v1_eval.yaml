@@ -1,0 +1,79 @@
+# GalamseyWatch v1 — standalone evaluation config.
+#
+# Runs the 3 benchmarks (description BLEU, grounding IoU@0.5, grounding
+# IoU@0.25) against a fine-tuned checkpoint WITHOUT additional training.
+# Mirrors the pattern of Liquid's vrsbench_full_eval.yaml.
+#
+# The "eval at step 0" trick: set eval_on_start=true and eval_steps to a huge
+# number. leap-finetune runs the benchmarks at step 0, then runs a nominal
+# training loop on a tiny slice (just enough to satisfy the trainer's
+# requirement for training data) before exiting. The actual signal is the
+# step-0 benchmark numbers in the log.
+#
+# To evaluate the BASE model (for before/after comparison), change model_name
+# to "LiquidAI/LFM2.5-VL-450M" and re-run.
+#
+# Invoke from the leap-finetune clone directory:
+#     cd training/reference/leap-finetune
+#     uv run leap-finetune /Users/mac/Downloads/GalamseyWatch/training/configs/galamsey_v1_eval.yaml
+
+project_name: "galamsey-v1-eval"
+
+# Path to the fine-tuned checkpoint saved by the v1 training run.
+# This is the final epoch-3 step-1110 checkpoint. See:
+#   modal volume ls galamsey /lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-20260415_213456
+model_name: "/galamsey/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-20260415_213456/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-e3s1110-20260415_213456"
+
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/v1/galamsey_v1_description_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.1
+  image_root: "/galamsey/data/v1/images"
+  limit: 20                        # tiny — just enough to satisfy the trainer's data requirement
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  eval_on_start: true              # runs benchmarks at step 0 — this is where the real numbers come from
+  eval_strategy: "steps"
+  eval_steps: 999999               # effectively disables any further eval after step 0
+  save_strategy: "no"
+  logging_steps: 1
+
+peft_config:
+  use_peft: false
+
+benchmarks:
+  max_new_tokens: 256
+  image_root: "/galamsey/data/v1/images"
+  benchmarks:
+    - name: "galamsey_description_bleu"
+      path: "/galamsey/data/v1/galamsey_v1_description_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou50"
+      path: "/galamsey/data/v1/galamsey_v1_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.5
+      max_new_tokens: 256
+      limit: 300
+
+    - name: "galamsey_grounding_iou25"
+      path: "/galamsey/data/v1/galamsey_v1_grounding_eval.jsonl"
+      metric: "grounding_iou"
+      iou_threshold: 0.25
+      max_new_tokens: 256
+      limit: 300
+
+modal:
+  app_name: "galamsey-v1-eval"
+  gpu: "H100"
+  timeout: 1800                    # 30 min cap
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false
