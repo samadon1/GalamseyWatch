@@ -98,9 +98,9 @@ app/src/app/landing_ref.tsx
 app/scripts/
 app/public/demo_pack/
 
-# Training notebooks and the dev README — kept local for iteration.
+# Training notebooks and developer scratch notes — kept local for iteration.
 training/notebooks/
-training/README.md
+training/_DEV_NOTES.md
 
 # Vendored references — separate upstream git repos, not part of this codebase.
 # The orchestrator hits DPhi's hosted SimSat (Cloud Run) by default; clone the
@@ -111,3 +111,10 @@ training/reference/
 
 # Logs
 *.log
+
+# Slideshow + benchmark cache (local-only, may contain in-progress narrative).
+# Remove these lines if/when you want the deck and result cache in the repo.
+presentation.html
+presentation_assets/
+orchestrator/.benchmark_cache/
+orchestrator/scripts/baseline_results.csv
