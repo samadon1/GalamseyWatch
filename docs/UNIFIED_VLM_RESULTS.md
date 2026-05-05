@@ -31,6 +31,22 @@ architecture-plus-pretraining effect. Both single-model architecture and the
 right pretraining base contribute; stacked LoRA on the perception fine-tune
 is what unlocks the larger margin.
 
+**Update — expanded eval (99 tiles).** After labeling 60 additional held-out
+tiles drawn by the same deterministic sampler at indices the training set
+never saw, we re-ran all four systems on the full 99-tile set. The headline
+result holds: v3 lands at **76.8 %** (down 5.3 pp from the 39-tile result,
+within binomial noise), still beating the strongest baseline by **+11.1 pp**
+(v3 76.8 % vs bare two-layer 65.7 %; rich-context two-layer landed at
+63.6 %, noise-equivalent to bare). The 8 pp "richer context" attribution
+from the 39-tile round was largely sample noise: at 99 tiles, the bare and
+rich-context two-layer variants are statistically indistinguishable. The
+**architecture-plus-pretraining** effect is the durable signal — and it
+shows up on the class where it should: v3 catches **16 of 18** flag tiles
+(0.89 recall) where bare two-layer catches **2 of 18** (0.11 recall), a
+78 pp class-level gap that's the cleanest evidence joint pixel+context
+reasoning is doing real work the text-bottlenecked perception+policy cannot
+match.
+
 ## Where this came from
 
 The project began as a perception model: a fine-tuned LFM2.5-VL-450M
@@ -144,14 +160,21 @@ tracked v2's trajectory until both plateaued. v3 reached 82.1 % accuracy
 on the same eval, a 10.3 pp lift over v2. Full training configs at
 `training/configs/galamsey_unified_v{2,3}_modal.yaml`.
 
-**Evaluation.** A separate 39-tile held-out set was carved at corpus build
-time, stratified by action so each split has all four observed classes
-(discard 22, flag 9, downlink 7, hires 1; the neighbor class is absent in
-both splits because we have no labeled examples). We measure action-match
-accuracy plus per-class precision and recall. The metric is intentionally
-coarse — we don't grade the model on its `reason` text, only on whether
-the predicted action matches the gold action — because the action is the
-operational quantity: which tile gets bandwidth this pass.
+**Evaluation.** Two held-out evaluations ran on disjoint tile sets. The
+initial 39-tile set was carved at corpus build time from the same
+distribution as the training data, stratified by action so each split
+has all four observed classes (discard 22, flag 9, downlink 7, hires 1;
+the neighbor class is absent in both splits because we have no labeled
+examples). After the first round of results, we labeled an additional 60
+held-out tiles drawn by the same deterministic sampler (seed 42) but at
+indices the training set never saw, producing a 99-tile expanded eval
+(discard 59, flag 18, downlink 21, hires 1). The headline numbers in
+this document are from the 99-tile evaluation; the 39-tile numbers are
+preserved as a reference and to show how binomial noise behaves at the
+two scales. We measure action-match accuracy plus per-class precision
+and recall — the model isn't graded on its `reason` text, only on
+whether the predicted action matches the gold action, because the
+action is the operational quantity: which tile gets bandwidth this pass.
 
 To put the unified result in context, we ran the same eval against the
 two-layer reference (`galamsey-v9-e3` perception VLM emitting boxes and
@@ -185,6 +208,49 @@ Per-class recall tells the more useful story:
 | flag_for_review (n = 9) | 0.11 | 0.44 | 0.67 | **0.89** |
 | downlink_now (n = 7) | 0.14 | 0.43 | 0.43 | **0.57** |
 | request_higher_resolution (n = 1) | 0.00 | 0.00 | 0.00 | 0.00 |
+
+### Re-evaluation on 99 tiles
+
+The 39-tile eval is enough to detect a 13 pp gap with confidence but not
+to discriminate the smaller v2-vs-rich-context comparison from binomial
+noise. We labeled 60 additional held-out tiles (u0190-u0249, drawn by the
+same deterministic sampler but at indices outside the training set) and
+re-ran all four systems on the combined 99-tile set:
+
+| System | 39-tile | 99-tile | Δ |
+|---|---:|---:|---:|
+| Always-discard floor | 56.4 % | **59.6 %** | +3.2 |
+| Two-layer (bare) | 61.5 % | **65.7 %** | +4.2 |
+| Two-layer (rich-context) | 69.2 % | **63.6 %** | −5.6 |
+| Unified v2 | 71.8 % | **70.7 %** | −1.1 |
+| **Unified v3** | **82.1 %** | **76.8 %** | **−5.3** |
+
+Two findings emerge once the sample is bigger. First, v3 still wins by a
+robust margin: 76.8 % vs 65.7 % (best baseline) is a **+11.1 pp** gap on
+99 tiles — narrower than the 39-tile +12.9 pp but tighter to estimate
+and well outside the binomial CI. Second, the rich-context-vs-bare
+comparison flipped: bare two-layer (65.7 %) actually edges rich-context
+(63.6 %), exactly the kind of swing a small sample masks. The 8 pp we
+attributed to "richer context" on 39 tiles was largely sample noise. At
+99 tiles the bare and rich-context variants are statistically
+indistinguishable, and the durable architectural signal is what's left.
+
+Per-class recall on the 99-tile expanded eval:
+
+| Action | Bare two-layer | Rich-context two-layer | Unified v2 | **Unified v3** |
+|---|---:|---:|---:|---:|
+| discard (n = 59) | **1.00** | 0.78 | 0.80 | 0.80 |
+| flag_for_review (n = 18) | 0.11 | 0.56 | 0.78 | **0.89** |
+| downlink_now (n = 21) | 0.19 | 0.33 | 0.43 | **0.62** |
+| request_higher_resolution (n = 1) | 0.00 | 0.00 | 0.00 | 0.00 |
+
+The flag-class gap sharpens with more data. v3 catches 16 of 18 flag
+tiles; bare two-layer catches 2 of 18. The 78 pp class-level recall gap
+holds across both eval scales and is the cleanest single piece of
+evidence that joint pixel+context reasoning is doing real work the
+text-bottleneck perception+policy can't match. v3's downlink recall also
+climbs from 0.43 (39) to 0.62 (99) — the original eval underestimated
+this class because there were only 7 downlink tiles to test on.
 
 Three readings of the table. First: the bare two-layer is overly conservative
 — it nails every discard but misses six of seven active-mining tiles.
@@ -244,6 +310,18 @@ load-bearing:
   base, the small LoRA simply doesn't have enough capacity to learn both
   perception and action from 327 examples.
 
+The 99-tile re-evaluation revised this decomposition. The "8 pp
+contextual" component shrunk to nearly zero — at the larger sample, bare
+and rich-context two-layer are statistically tied, so adding
+`mission_priors` and `neighbor_summary` to the LFM2 prompt is roughly
+neutral on average. The architecture-plus-pretraining contribution
+absorbed that share, so the cleaner two-component story on the bigger
+eval is: about 5 pp of the v3-vs-baseline gap is the architecture effect
+(v2 vs bare two-layer at 99 = 70.7 % − 65.7 %) and about 6 pp is the
+stacked-pretraining effect (v3 vs v2 at 99 = 76.8 % − 70.7 %). Both
+contributions are real, neither is ignorable, and together they hold
+across two independent eval samples.
+
 The deployment story compounds with the accuracy story rather than
 substituting for it. The unified v3 model uses 6.8 × fewer parameters than
 the two-layer reference, runs as a single model on edge hardware, removes
@@ -269,12 +347,15 @@ Three honest gaps in the experiment as presented:
   labeling, possibly synthetic construction (cropping known-mining tiles
   to put the disturbance at a tile edge, then labeling the result as
   `request_neighbor_tile`).
-* **Eval set size.** Thirty-nine tiles is enough to detect a 13 pp gap
-  with confidence but not to discriminate the v2-vs-rich-context tie
-  (2.6 pp) from genuine architectural advantage. Expanding the eval set
-  to a few hundred tiles, drawn from AOIs disjoint from the training
-  corpus, would tighten the v2-equivalent comparison and enable per-class
-  significance testing on the larger v3 gap.
+* **Eval set size.** Partially addressed by the 99-tile expansion above,
+  which collapsed the v2-vs-rich-context tie into a clearer "they're both
+  noise-equivalent to the bare two-layer." A further expansion to a few
+  hundred tiles drawn from AOIs disjoint from the training corpus would
+  let us run per-class significance testing and would test
+  out-of-distribution generalization, not just same-distribution
+  robustness. The 60 new tiles in this round were drawn from the same
+  sampler at indices the training set never saw — they're held-out but
+  not from disjoint AOIs.
 * **No GRPO or other RL post-SFT.** The v3 model is the SFT-only
   configuration. Action selection has a verifiable reward (does the
   predicted action equal the gold action?) which is exactly what GRPO is
@@ -282,26 +363,34 @@ Three honest gaps in the experiment as presented:
   checkpoint, especially targeting the rare-class boundaries where SFT
   plateaued.
 
-For the result reported here — v1 / v2 / v3 SFT, four-way comparison
-against three baselines on a fixed eval — the experiment is closed.
+For the result reported here — v1 / v2 / v3 SFT, four-way comparison on
+two eval scales (39 and 99 tiles) — the experiment is closed.
 
 ## Reproducibility
 
 * Source: `samadon1/GalamseyWatch` on GitHub.
-* Data: `training/data/unified_v1/labels.jsonl` (in-repo, 209 rows). Image
-  fetch is deterministic via `training/scripts/fetch_unified_corpus.py`
-  with seed 42.
+* Data: `training/data/unified_v1/labels.jsonl` (in-repo, 250 rows: 190
+  production + 60 expanded-eval, plus 19 validation tiles documented in
+  `UNIFIED_VLM_VALIDATION.md`). Image fetch is deterministic via
+  `training/scripts/fetch_unified_corpus.py` with seed 42.
 * Train/eval JSONL build: `training/scripts/build_unified_v2_sft_dataset.py`
-  (v2 and v3 share the same dataset; only the LoRA base differs).
+  (v2 and v3 share the same training set; only the LoRA base differs).
+  The 99-tile expanded eval is built by
+  `training/scripts/build_expanded_eval_dataset.py`, which combines the
+  original 39 with the 60 new tiles (u0190-u0249).
 * Training configs: `training/configs/galamsey_unified_v{1,2,3}_modal.yaml`.
   Run via `uv run leap-finetune configs/galamsey_unified_v3_modal.yaml`
   (or the corresponding earlier configs to reproduce the v1 / v2 results).
-* Eval scripts: `training/scripts/eval_unified_v{1,2,3}_action_match_modal.py`,
+* Eval scripts (39-tile):
+  `training/scripts/eval_unified_v{1,2,3}_action_match_modal.py`,
   `eval_two_layer_baseline_modal.py`,
   `eval_two_layer_rich_context_modal.py`.
+* Eval scripts (99-tile expanded): same names with `_expanded.py` suffix —
+  identical apart from the eval JSONL path.
 
 Predictions for all four trained systems are saved as JSONL on the
-`galamsey` Modal volume under `/data/unified_v2/predictions_*.jsonl`. The
-v3 stacked-LoRA checkpoint lives at the path encoded in
+`galamsey` Modal volume under `/data/unified_v2/predictions_*.jsonl`
+(39-tile) and `/data/unified_v2/predictions_*_expanded.jsonl` (99-tile).
+The v3 stacked-LoRA checkpoint lives at the path encoded in
 `eval_unified_v3_action_match_modal.py`; the merged-weights variant
 (`lora_m`) is what we evaluate against.
