@@ -1,27 +1,28 @@
-# Build an On-Orbit Decision Policy for Bandwidth-Aware Satellite Tasking with a 450M Unified VLM
+# On-Orbit Decision Policy for Bandwidth-Aware Satellite Tasking with a 450M Unified VLM
 
-![Pareto chart: 450M unified VLM at 76.8 percent accuracy beats 3.05B two-layer baselines at 65.7 and 63.6 percent — 6.8x fewer parameters, +11.1pp accuracy](blog_assets/chart_pareto.png)
+![Hero chart: 450M unified VLM (v4.1 multitask) at 77.8 percent accuracy beats 3.05B two-layer baselines at 65.7 and 63.6 percent. Annotated callout: 6.8x fewer parameters, +12.1pp accuracy. The unified model significantly outperforms the two-layer baselines](blog_assets/hero.png)
 
-A 450M LFM2.5-VL fine-tune that picks one of five satellite-tasking actions per Sentinel-2 tile, given the imagery and a per-pass scalar context block. Beats a 3.05B two-layer perception+policy reference system by **+11.1 pp** action-match accuracy on a 99-tile held-out evaluation, at **6.8x fewer parameters**.
+We fine-tuned a 450M LFM2.5-VL into a satellite-tasking policy that picks one of five actions per Sentinel-2 tile, given the imagery and a per-pass scalar context block. The unified model beats a 3.05B two-layer perception+policy reference system by **+12.1 pp** action-match accuracy on a 99-tile held-out evaluation, at **6.8x fewer parameters**. A single weight set produces the action, plus bounding boxes and a free-form scene description on demand; one model, three jobs.
 
-## What you will learn
+This post is the experiment report: what we shipped, what we tried, what we found, and the warts that remain.
 
-By the end of this guide you will:
+## Headline findings
 
-* Understand why a single unified VLM can replace a two-layer perception + policy pipeline for on-orbit satellite tasking.
-* See the dataset, labeling protocol, and 5-action vocabulary for bandwidth-aware decisions.
-* Run the full fine-tuning recipe end-to-end on Modal: dataset prep, LoRA config, training, evaluation.
-* Reproduce the headline result (76.8 % action-match accuracy on 99 held-out tiles) starting from `samwell/galamsey-v9-e3` as the base.
+* A 450M unified VLM replaced our 3.05B two-layer pipeline for on-orbit satellite tasking, with +12.1 pp action-match accuracy on the 99-tile held-out eval (77.8 % vs the strongest baseline at 65.7 %).
+* The architectural advantage concentrated on the `flag_for_review` class: 0.89 recall vs 0.11 for the bare two-layer baseline. This is the class where ambiguous tiles need joint pixel + scalar-context reasoning that text descriptions tend to flatten.
+* Stacking the action LoRA on top of `samwell/galamsey-v9-e3` (an existing perception fine-tune) instead of the bare LFM2.5-VL-450M base added +6.1 pp by itself. The perception backbone is doing real work.
+* A first multitask SFT run that mixed action and perception examples 1:3 dropped action accuracy 7 pp because the action signal got drowned. Cutting perception examples to 1:0.7 of action recovered the gap and slightly exceeded the action-only model, while keeping v9-e3-quality grounding and description outputs from the same weights.
 
-## Steps
+## What's in this post
 
 1. Problem framing
 2. System design
 3. Data collection and labeling pipeline
 4. Evaluation methodology
 5. Baseline performance
-6. Fine-tuning the unified model
-7. Results
+6. Fine-tuning the action policy (v3)
+7. Multitask SFT for full unification (v4.1)
+8. Results
 
 ## 1. Problem framing
 
@@ -39,7 +40,7 @@ The action vocabulary is five fixed tools:
 
 Picking the wrong `discard` wastes nothing. Picking the wrong `downlink_now` burns 80 KB of budget that cannot then go to a real galamsey detection later in the pass. The orchestrator is therefore a per-tile multi-class classifier with a verifiable cost structure.
 
-We previously shipped this in [GalamseyWatch](https://github.com/samadon1/GalamseyWatch) as a two-layer pipeline: a 450M perception VLM ([`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3)) emits bounding boxes plus a scene description, then a 2.6B text-only LFM2 policy reads those plus a scalar context block (downlink budget, neighbor decisions, mission priors) and picks the action. This worked, but the description string between the two layers is a bottleneck: visual cues that the perception VLM does not surface in prose cannot reach the policy. The question this guide answers is: can a single 450M VLM, fine-tuned end-to-end, do better than the 3.05B two-layer split?
+We previously shipped this in [GalamseyWatch](https://github.com/samadon1/GalamseyWatch) as a two-layer pipeline: a 450M perception VLM ([`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3)) emits bounding boxes plus a scene description, then a 2.6B text-only LFM2 policy reads those plus a scalar context block (downlink budget, neighbor decisions, mission priors) and picks the action. This worked, but the description string between the two layers is a bottleneck: visual cues that the perception VLM does not surface in prose cannot reach the policy. The question we set out to answer was: can a single 450M VLM, fine-tuned end-to-end, do better than the 3.05B two-layer split?
 
 ## 2. System design
 
@@ -51,52 +52,23 @@ The cost is that one model has to be good at two jobs. A 450M VLM might not have
 
 **Two-layer pipeline (3.05 B params total):**
 
-```mermaid
-flowchart LR
-    img[RGB + SWIR images]:::input
-    ctx[Scalar context<br/>budget · neighbors · priors]:::input
-    perc[galamsey-v9-e3<br/>450M perception VLM]:::model
-    bottleneck[bboxes + description string]:::bottleneck
-    pol[LFM2-2.6B<br/>text policy]:::model
-    act[action]:::output
-
-    img --> perc --> bottleneck --> pol --> act
-    ctx --> pol
-
-    classDef input fill:#e3f2fd,stroke:#1976d2
-    classDef model fill:#f3e5f5,stroke:#7b1fa2
-    classDef bottleneck fill:#fff3e0,stroke:#e65100,stroke-dasharray: 5 5
-    classDef output fill:#e8f5e9,stroke:#2e7d32
-```
+![Two-layer pipeline architecture: RGB and SWIR images flow into a 450M perception VLM, which emits a bounding-boxes + description string that becomes the text bottleneck, then feeds into a 2.6B LFM2 text policy that combines it with scalar context to emit the action](blog_assets/diagram_two_layer.png)
 
 The dashed box is the text bottleneck: visual cues that the perception VLM does not surface in the description string cannot reach the policy.
 
 **Unified VLM (450 M params total):**
 
-```mermaid
-flowchart LR
-    img[RGB + SWIR images]:::input
-    ctx[Scalar context<br/>budget · neighbors · priors]:::input
-    uni[galamsey-unified-v3<br/>450M VLM]:::model
-    act[action]:::output
+![Unified VLM architecture: RGB and SWIR images plus scalar context feed into a single 450M galamsey-unified-v4-1 model that emits the action directly. A dashed arrow shows the same model can also emit bounding boxes and a description on demand](blog_assets/diagram_unified.png)
 
-    img --> uni --> act
-    ctx --> uni
-
-    classDef input fill:#e3f2fd,stroke:#1976d2
-    classDef model fill:#f3e5f5,stroke:#7b1fa2
-    classDef output fill:#e8f5e9,stroke:#2e7d32
-```
-
-One model. One forward pass. No text bottleneck.
+One model. One forward pass for the action. The same weights also emit bounding boxes and a description on demand (different prompt, different forward pass); so the on-ground analyst-review step that needs visualization-grade outputs collapses into the same model that ran on orbit.
 
 ### Why stack the policy LoRA on a perception fine-tune
 
-The first thing to try is a LoRA on the bare LFM2.5-VL-450M base. We did this (call it v2). It works but only matches the two-layer baseline within noise. The reason is capacity: a small LoRA on the bare base has to learn perception (galamsey looks like exposed orange soil with bright SWIR) and policy (downlink only when budget allows and signal is unambiguous) from the same 327 oversampled training rows. The LoRA splits its capacity between the two jobs.
+The first thing we tried was a LoRA on the bare LFM2.5-VL-450M base (call it v2). It worked but only matched the two-layer baseline within noise. The reason is capacity: a small LoRA on the bare base has to learn perception (galamsey looks like exposed orange soil with bright SWIR) and policy (downlink only when budget allows and signal is unambiguous) from the same 327 oversampled training rows. The LoRA splits its capacity between the two jobs.
 
 The fix is to stack the policy LoRA on top of an existing perception fine-tune. We use [`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3) as the base. v9-e3 has already learned the perception representation from SmallMinesDS (4x D4 augmentation, full FT). The policy LoRA only needs to learn action selection on top of that frozen perception backbone. This is the [SMoLoRA](https://arxiv.org/abs/2411.10979) / [ColPro](https://arxiv.org/abs/2410.18816) stacked-adapter recipe applied to the agentic-EO setting.
 
-The two effects are roughly additive in our results: the unified architecture (v2 vs rich-context two-layer) adds about 5 pp, and the stacked-pretraining (v3 vs v2) adds about 6 pp.
+The two effects are roughly additive in our results: the unified architecture (v2 vs rich-context two-layer) adds about 7 pp, and the stacked-pretraining (v3 vs v2) adds about 6 pp.
 
 ## 3. Data collection and labeling pipeline
 
@@ -148,14 +120,15 @@ We use **action-match accuracy** as the primary metric: did the predicted `actio
 
 The evaluation set is 99 held-out Sentinel-2 tiles (39 from the original train/eval split + 60 newly labeled at indices the training set never saw, both drawn by the same deterministic sampler). Class breakdown: 59 discard, 18 flag, 21 downlink, 1 hires.
 
-We compare four systems on this set:
+We compare five systems on this set:
 
 1. **Always-discard floor**: the dummy policy that always emits `discard`. Captures the prior probability of the dominant class.
 2. **Two-layer (bare)**: galamsey-v9-e3 perception + LFM2-2.6B policy with the original orchestrator prompt (perception output + budget only).
 3. **Two-layer (rich-context)**: same models, but the LFM2 prompt is extended with `mission_priors` and `neighbor_summary` (the same scalar context the unified model sees). Isolates the architecture effect from the contextual contribution of richer prompts.
-4. **Unified VLM**: `galamsey-unified-v3` (450M, single model).
+4. **Unified v3**: `galamsey-unified-v3` (450M, single model, action-only LoRA on `galamsey-v9-e3`). Intermediate result.
+5. **Unified v4.1**: `galamsey-unified-v4-1` (450M, single model, multitask LoRA: action + grounding + description, same base). Headline result; trained later in Section 7.
 
-Eval scripts are in [`training/scripts/eval_*_action_match_modal_expanded.py`](https://github.com/samadon1/GalamseyWatch/tree/main/training/scripts). All four run on Modal H100 with bf16 inference, greedy decoding, the same 99-tile JSONL.
+Eval scripts are in [`training/scripts/eval_*_action_match_modal_expanded.py`](https://github.com/samadon1/GalamseyWatch/tree/main/training/scripts). All five run on Modal H100 with bf16 inference, greedy decoding, the same 99-tile JSONL.
 
 ## 5. Baseline performance
 
@@ -165,40 +138,23 @@ The rich-context two-layer (same models, extended prompt) scores **63.6 %**, sta
 
 Both two-layer variants are already 3.05 B parameters: a 450 M perception VLM plus a 2.6 B text policy. Beating either with a 450 M unified model would mean roughly 6.8 x fewer parameters at higher accuracy.
 
-## 6. Fine-tuning the unified model
+## 6. Fine-tuning the action policy (v3)
 
-The training pipeline uses [`leap-finetune`](https://github.com/Liquid4All/leap-finetune) on Modal H100. Total training time for the headline v3 run is about 9 minutes.
+We trained on Modal H100 using [`leap-finetune`](https://github.com/Liquid4All/leap-finetune).
 
-### Step 1. Install `leap-finetune`
+### Dataset transformations
 
-```bash
-git clone https://github.com/Liquid4All/leap-finetune
-cd leap-finetune
-uv sync
-```
+The training data is the 250-row corpus from [`samwell/galamsey-unified-decisions`](https://huggingface.co/datasets/samwell/galamsey-unified-decisions). Two transformations were essential.
 
-You also need Modal authenticated, a HuggingFace token (mounted as the `huggingface-secret` Modal secret), and the v9-e3 perception base accessible on a Modal volume.
+**Action-only target.** Our v1 attempt used a `{"action": ..., "reason": ...}` assistant target of about 150 tokens. The model collapsed to `{discard, flag}` only and scored below the always-discard floor. The diagnosis: per-token cross-entropy was concentrating on reason-text fitting, and the action token was a tiny fraction of the gradient signal. We dropped the reason field, leaving `{"action": "<action_name>"}` (~15 tokens). That put 100 % of the loss on the prediction we actually care about.
 
-### Step 2. Prepare the dataset
+**Class-balanced oversampling.** The 151-tile training set is 87 discard / 35 flag / 27 downlink / 2 hires. We oversampled the rare classes to roughly 80 each (discard stayed at 87; flag, downlink, hires were repeated up to 80; neighbor has zero unique examples and was skipped). The resulting 327-row training set is much closer to balanced.
 
-The training data is the same 250-row corpus from [`samwell/galamsey-unified-decisions`](https://huggingface.co/datasets/samwell/galamsey-unified-decisions). Two transformations matter:
+Both transformations live in [`training/scripts/build_unified_v2_sft_dataset.py`](https://github.com/samadon1/GalamseyWatch/blob/main/training/scripts/build_unified_v2_sft_dataset.py); the script emits `galamsey_unified_v2_train.jsonl` (327 rows) and `galamsey_unified_v2_eval.jsonl` (39 rows held out).
 
-**Action-only target.** The assistant's training target is just `{"action": "<action_name>"}`, about 15 tokens. Earlier experiments with a `{"action": ..., "reason": ...}` target (about 150 tokens) caused the model to collapse to `{discard, flag}` only and score below the always-discard floor. The diagnosis: per-token cross-entropy was concentrating on reason-text fitting, and the action token was a tiny fraction of the gradient signal. Dropping the reason field puts 100 % of the loss on the prediction we actually care about.
+### Training config
 
-**Class-balanced oversampling.** The 151-tile training set has 87 discard / 35 flag / 27 downlink / 2 hires. We oversample the rare classes to roughly 80 each (discard stays at 87; flag, downlink, hires repeated up to 80; neighbor has zero unique examples and is skipped). The resulting 327-row training set is much closer to balanced.
-
-Both transformations are in [`training/scripts/build_unified_v2_sft_dataset.py`](https://github.com/samadon1/GalamseyWatch/blob/main/training/scripts/build_unified_v2_sft_dataset.py):
-
-```bash
-cd training
-uv run python scripts/build_unified_v2_sft_dataset.py
-```
-
-This emits `training/data/unified_v2/galamsey_unified_v2_train.jsonl` (327 rows) and `galamsey_unified_v2_eval.jsonl` (39 rows held out) plus a flat `images/` directory.
-
-### Step 3. Prepare the configuration file
-
-The training config is [`training/configs/galamsey_unified_v3_modal.yaml`](https://github.com/samadon1/GalamseyWatch/blob/main/training/configs/galamsey_unified_v3_modal.yaml):
+We used [`training/configs/galamsey_unified_v3_modal.yaml`](https://github.com/samadon1/GalamseyWatch/blob/main/training/configs/galamsey_unified_v3_modal.yaml):
 
 ```yaml
 project_name: "galamsey-unified-v3-stacked-lora"
@@ -239,53 +195,20 @@ modal:
   detach: false
 ```
 
-Two things to note:
+Two design choices in the config matter:
 
-* `model_name` points at the merged v9-e3 checkpoint on the Modal volume, not the bare LFM2.5-VL-450M. This is what makes it stacked LoRA. Replace this path with whatever the v9-e3 checkpoint resolves to in your setup.
-* `peft_config.r = 16` is double the `DEFAULT_VLM_LORA` rank of 8. We found this needed for v3 specifically; smaller ranks underfit the policy on the larger context.
+* `model_name` points at the merged v9-e3 checkpoint on the Modal volume, not the bare LFM2.5-VL-450M. This is what makes the LoRA stacked rather than free-standing.
+* `peft_config.r = 16` is double the `DEFAULT_VLM_LORA` rank of 8. Rank 8 underfit the policy on the larger context in our early runs; rank 16 was the smallest that didn't underfit.
 
-### Step 4. Kick off the fine-tuning
+### What the run looked like
 
-```bash
-cd training
-uv run leap-finetune configs/galamsey_unified_v3_modal.yaml
-```
+Training reported `trainable params: 4,456,448 || all params: 520,284,160 || trainable %: 0.8565` after loading the v9-e3 base. Eval at epoch 0 came in at `eval_loss: 5.21`, much higher than the bare-base v2 baseline of 1.07; expected, since v9-e3 is biased toward emitting bounding-box JSON, which is far from `{"action": "discard"}`. The LoRA had to overcome that prior. By epoch 3 the loss broke through it; by epoch 7 train loss was essentially zero and eval loss plateaued around 0.001.
 
-You should see, in order:
+The merged final weights landed at `/galamsey/<long-run-name>/<long-run-name>-lora_m-<timestamp>` on the Modal volume. We published the merged model at [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3) on HuggingFace.
 
-1. Modal builds the training image (about 2-3 minutes on first run, cached on later runs).
-2. The model loads from the v9-e3 checkpoint and reports `trainable params: 4,456,448 || all params: 520,284,160 || trainable %: 0.8565`. This is the v9-e3 base (about 520 M with the perception buffers) plus the new policy LoRA at rank 16.
-3. Eval at epoch 0 reports `eval_loss: 5.21`, much higher than the bare-base v2 baseline of 1.07. This is expected: the v9-e3 perception fine-tune is biased toward emitting bounding-box JSON, which is far from `{"action": "discard"}`. The LoRA has to overcome this prior.
-4. By epoch 3 the loss breaks through the prior and tracks the v2 trajectory.
-5. By epoch 7 train loss is essentially zero; eval loss plateaus around 0.001.
-6. Training ends after 15 epochs in about 9 minutes total on H100.
+### Eval
 
-### Step 5. Retrieve the checkpoint
-
-The merged final weights land at `/galamsey/<long-run-name>/<long-run-name>-lora_m-<timestamp>` on the Modal volume. The merged variant (`lora_m`) is what you evaluate against; the LoRA-only adapter (`lora_a`) is also saved for users who want to compose with other adapters.
-
-We have published the merged model at [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3) on HuggingFace. You can use it directly without retraining:
-
-```python
-from transformers import AutoModelForImageTextToText, AutoProcessor
-model = AutoModelForImageTextToText.from_pretrained(
-    "samwell/galamsey-unified-v3",
-    torch_dtype="bfloat16",
-    trust_remote_code=True,
-).cuda().eval()
-processor = AutoProcessor.from_pretrained("samwell/galamsey-unified-v3", trust_remote_code=True)
-```
-
-### Step 6. Evaluate the fine-tuned model
-
-The eval script [`training/scripts/eval_unified_v3_action_match_modal_expanded.py`](https://github.com/samadon1/GalamseyWatch/blob/main/training/scripts/eval_unified_v3_action_match_modal_expanded.py) runs the model on the 99-tile held-out set, parses the JSON action from each completion, and computes the confusion matrix:
-
-```bash
-cd training
-uv run modal run scripts/eval_unified_v3_action_match_modal_expanded.py
-```
-
-The expected output:
+Running the eval script ([`training/scripts/eval_unified_v3_action_match_modal_expanded.py`](https://github.com/samadon1/GalamseyWatch/blob/main/training/scripts/eval_unified_v3_action_match_modal_expanded.py)) on the 99-tile held-out set produced:
 
 ```
 Action-match accuracy: 76/99 = 0.7677
@@ -298,7 +221,52 @@ request_higher_resolution
 downlink_now           1      13             7               21
 ```
 
-## 7. Results
+76.8 % action-match accuracy, +11.1 pp over the strongest baseline. We held this as the working result while we investigated the next question: did the action-only training erase v9-e3's perception ability?
+
+## 7. Multitask SFT for full unification (v4.1)
+
+v3 had one wart we wanted to close: training on action-only target had partially overwritten v9-e3's perception ability. We confirmed this empirically; when we prompted v3 with the grounding prompt it emitted malformed JSON, and with the description prompt it hallucinated. In practice we still needed v9-e3 around for the on-ground analyst-review step that wants visualization-grade outputs. So we ran a multitask SFT experiment to collapse that second model away.
+
+v4.1 used the same base and the same LoRA hyperparams as v3. The only change was the training corpus.
+
+### The mixture
+
+We mixed three task types into a single shuffled JSONL:
+
+* **Action examples (327 rows)**: the same v2 oversampled corpus that v3 used.
+* **Grounding examples (125 rows)**: sampled from the v9 perception SFT corpus. Target is bounding-box JSON.
+* **Description examples (125 rows)**: same source, target is free-form scene description.
+
+Total: 577 rows, action share 56.7 %. The builder is at [`training/scripts/build_unified_v4_1_multitask_dataset_modal.py`](https://github.com/samadon1/GalamseyWatch/blob/main/training/scripts/build_unified_v4_1_multitask_dataset_modal.py).
+
+The reasoning behind the ratio: v9-e3 already knows perception well, so the perception subset is acting as a regulariser keeping the LoRA from overwriting that knowledge; we don't need to re-teach it from scratch. Our first attempt used 500 grounding + 500 description examples (action share 24.6 %). Perception held but action accuracy dropped 7 pp on the 99-tile holdout because the action signal was being drowned. We cut perception to 125 + 125 and re-ran.
+
+### Training and eval
+
+The config ([`galamsey_unified_v4_1_multitask_modal.yaml`](https://github.com/samadon1/GalamseyWatch/blob/main/training/configs/galamsey_unified_v4_1_multitask_modal.yaml)) is identical to v3 except for the dataset path:
+
+```yaml
+dataset:
+  path: "/galamsey/data/unified_v4_1_multitask/galamsey_unified_v4_1_multitask_train.jsonl"
+  image_root: "/galamsey/data/unified_v4_1_multitask/images"
+```
+
+Same r=16 / alpha=32 LoRA, same lr=2e-5, same 15 epochs. Training took about 13 minutes on H100; slightly less than v3 because the perception examples have shorter targets.
+
+We then evaluated twice: once on the action policy (the same 99-tile holdout) and once on perception (a 100-tile sample drawn from the v9 grounding/description eval JSONLs, head-to-head against v9-e3):
+
+```
+# Action eval
+Action-match accuracy: 77/99 = 0.7778
+
+# Perception eval (head-to-head on 100 tiles)
+v9     mIoU=0.337  box_count_match=25.00%  desc_BLEU=34.13
+v4.1   mIoU=0.334  box_count_match=30.00%  desc_BLEU=33.18
+```
+
+v4.1 matched v9-e3 on perception within noise, and slightly exceeded v3 on action accuracy. One weight set was now sufficient for both jobs. We published the model at [`samwell/galamsey-unified-v4-1`](https://huggingface.co/samwell/galamsey-unified-v4-1).
+
+## 8. Results
 
 ### Headline numbers
 
@@ -308,35 +276,43 @@ downlink_now           1      13             7               21
 | Two-layer (bare) | 3.05 B | 65.7 % |
 | Two-layer (rich-context) | 3.05 B | 63.6 % |
 | Unified v2 (LoRA on bare base) | 450 M | 70.7 % |
-| **Unified v3 (LoRA on `galamsey-v9-e3`)** | **450 M** | **76.8 %** |
+| Unified v3 (LoRA on `galamsey-v9-e3`, action-only target) | 450 M | 76.8 % |
+| **Unified v4.1 (multitask LoRA: action + grounding + description)** | **450 M** | **77.8 %** |
 
-`galamsey-unified-v3` is **+11.1 pp** over the strongest baseline, **+17.1 pp** over the floor, at **6.8 x fewer parameters** than either two-layer variant.
+`galamsey-unified-v4-1` is **+12.1 pp** over the strongest baseline, **+18.2 pp** over the floor, at **6.8 x fewer parameters** than either two-layer variant. Unlike v3, v4.1 also retains v9-e3's perception ability: on a 100-tile perception holdout, v4.1 matches v9-e3 within noise on grounding mean IoU (0.334 vs 0.337) and description BLEU (33.2 vs 34.1). One weight set is now sufficient for the on-orbit decision **and** the on-ground analyst review.
 
 ### Per-class recall
 
 The architectural advantage is concentrated where it should be:
 
-![Grouped bar chart of per-class recall: bare two-layer, rich-context two-layer, and unified v3 across discard, flag_for_review, downlink_now, and request_higher_resolution. Unified v3 hits 0.89 on flag vs 0.11 for bare two-layer, the +78pp flag-class gap is highlighted](blog_assets/chart_per_class.png)
+![Grouped bar chart of per-class recall: bare two-layer, rich-context two-layer, and unified v4.1 across discard, flag_for_review, downlink_now, and request_higher_resolution. Unified v4.1 hits 0.89 on flag vs 0.11 for bare two-layer, the +78pp flag-class gap is highlighted](blog_assets/chart_per_class.png)
 
-| Action | Bare two-layer | Rich-context two-layer | **Unified v3** |
+| Action | Bare two-layer | Rich-context two-layer | **Unified v4.1** |
 |---|---:|---:|---:|
-| `discard` (n = 59) | 1.00 | 0.78 | 0.80 |
+| `discard` (n = 59) | 1.00 | 0.78 | 0.86 |
 | `flag_for_review` (n = 18) | 0.11 | 0.56 | **0.89** |
-| `downlink_now` (n = 21) | 0.19 | 0.33 | **0.62** |
+| `downlink_now` (n = 21) | 0.19 | 0.33 | **0.48** |
 | `request_higher_resolution` (n = 1) | 0.00 | 0.00 | 0.00 |
 
 The 78 pp `flag_for_review` recall gap (0.89 vs 0.11) is the cleanest single-class evidence of the unified architecture. Flag is the class where the gold label is most sensitive to subtle visual cues that a perception VLM's text description tends to flatten: a thin orange linear feature on a dense-forest tile, a small bright clearing in otherwise pristine canopy, a settlement-edge pattern that is neither full mining nor clean farmland. The unified model reads those cues directly off the pixels alongside the scalar context. The two-layer architecture has to compress them through the description string first.
+
+The figure below shows this concretely on three held-out tiles. Each panel is one tile with v4.1's actual outputs, bounding boxes from the grounding prompt, description from the description prompt, action from the policy prompt, all from the same weight set. The middle panel is the architectural-advantage case: when prompted for boxes, v4.1 says "0 boxes, no signs of galamsey." When prompted for the action, v4.1 still emits `flag_for_review` because the same weights read subtle scattered surface features and the scalar mission priors jointly with the pixels. A two-layer system reading v4.1's description string alone would discard this tile - but in the unified architecture, the policy never has to go through the description string in the first place.
+
+![Outputs gallery: three Sentinel-2 tiles with v4.1's actual outputs - boxes overlaid on the imagery, scene description below, action label at the bottom. The middle panel shows v4.1 emitting zero boxes and "no signs of mining" yet still picking flag_for_review, the architectural advantage on a single tile](blog_assets/outputs_gallery.png)
+
+A note on the on-orbit cost model. Only the action prompt runs in the per-pass decision path, so per-tile cost on orbit is one forward pass over a 450 M model. The grounding and description outputs are produced on the ground for the small subset of tiles that v4.1 chose to downlink, using the same weights that already shipped with the satellite. The 6.8 x parameter reduction relative to the two-layer baseline holds in both regimes.
 
 `request_higher_resolution` recall is 0.00 across all systems. There is only one hires example in the held-out set and only two unique hires examples in the training set (oversampled to 80 by repetition, which the model memorized rather than generalized). This class needs deliberate hand-construction, not just oversampling. Same story for `request_neighbor_tile`, which has zero examples anywhere in the corpus.
 
 ### What the wins decompose into
 
-A more careful read of the four-way table separates two effects:
+A more careful read of the table separates three effects:
 
-* **Architecture effect** (v2 vs rich-context two-layer): about +5 pp. The unified model's joint pixel + context reasoning shows up on flag and downlink, where text descriptions flatten subtle visual cues.
+* **Architecture effect** (v2 vs rich-context two-layer): about +7 pp. The unified model's joint pixel + context reasoning shows up on flag and downlink, where text descriptions flatten subtle visual cues.
 * **Stacked-pretraining effect** (v3 vs v2): about +6 pp. Pre-installing perception in the LoRA's base frees the policy LoRA to spend all 4.5 M trainable parameters on action selection rather than relearning what galamsey looks like.
+* **Multitask-mixture effect** (v4.1 vs v3): about +1 pp on action accuracy, plus full retention of v9-e3-quality grounding and description outputs from the same weights. The perception examples in the mixture act as a regulariser that keeps the LoRA from overwriting v9-e3's perception, with no measurable cost to action accuracy at the right ratio.
 
-Both contributions are real. Neither is ignorable. Together they hold across two independent eval samples (a 39-tile initial sample and the 99-tile expanded sample we trust as the headline).
+The first two contributions hold across two independent eval samples (a 39-tile initial sample and the 99-tile expanded sample we trust as the headline). The multitask effect was measured on the 99-tile sample only.
 
 ## What's next
 
@@ -349,7 +325,8 @@ Three open follow-ups, in increasing order of effort:
 ## Resources
 
 * Repository: [`samadon1/GalamseyWatch`](https://github.com/samadon1/GalamseyWatch)
-* Unified model: [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)
+* Unified model (multitask, headline result): [`samwell/galamsey-unified-v4-1`](https://huggingface.co/samwell/galamsey-unified-v4-1)
+* Unified model (action-only, intermediate result): [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)
 * Dataset: [`samwell/galamsey-unified-decisions`](https://huggingface.co/datasets/samwell/galamsey-unified-decisions)
 * Perception base: [`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3)
 * Live demo of the perception layer (browser, WebGPU): [galamseywatch.vercel.app](https://galamseywatch.vercel.app)

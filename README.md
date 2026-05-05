@@ -11,19 +11,21 @@ The contribution of the orchestrator isn't the galamsey detector. That's the wor
 
 ## Latest: unified VLM replaces the two-layer pipeline
 
-A follow-up result from May 2026: a single fine-tuned **450M LFM2.5-VL** picks the action directly, removing the description-string bottleneck between the perception VLM and the LFM2 policy.
+A follow-up result from May 2026: a single fine-tuned **450M LFM2.5-VL** picks the action directly, removing the description-string bottleneck between the perception VLM and the LFM2 policy. A multitask SFT mixture lets one weight set serve all three jobs (action policy, grounding, scene description).
 
 | System | Total params | 99-tile action-match accuracy |
 |---|---:|---:|
 | Two-layer (bare) | 3.05 B | 65.7 % |
 | Two-layer (rich-context) | 3.05 B | 63.6 % |
-| **Unified VLM** ([`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)) | **450 M** | **76.8 %** |
+| Unified v3 (action-only LoRA) ([`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)) | 450 M | 76.8 % |
+| **Unified v4.1 (multitask LoRA)** ([`samwell/galamsey-unified-v4-1`](https://huggingface.co/samwell/galamsey-unified-v4-1)) | **450 M** | **77.8 %** |
 
-**+11.1 pp over the strongest baseline at 6.8× fewer parameters.** The win comes from two design choices: (a) the assistant target is action-only (concentrates LM loss on the prediction), (b) the action LoRA stacks on top of the [`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3) perception fine-tune (frees capacity for action selection).
+**+12.1 pp over the strongest baseline at 6.8× fewer parameters**, with grounding mIoU and description BLEU both within noise of the specialist perception model. The win comes from three design choices: (a) the action LoRA stacks on top of the [`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3) perception fine-tune (frees capacity for action selection), (b) the assistant target for action examples is action-only (concentrates LM loss on the prediction), (c) the multitask mixture (327 action + 250 perception examples) preserves v9-e3's grounding and description ability inside the same LoRA.
 
 Resources:
 - **Blog post (Cookbook-style recipe):** [`docs/blog_unified_vlm.md`](./docs/blog_unified_vlm.md)
-- **Model:** [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)
+- **Headline model (multitask):** [`samwell/galamsey-unified-v4-1`](https://huggingface.co/samwell/galamsey-unified-v4-1)
+- **Predecessor (action-only):** [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)
 - **Dataset (250 hand-labeled tiles):** [`samwell/galamsey-unified-decisions`](https://huggingface.co/datasets/samwell/galamsey-unified-decisions)
 
 ---

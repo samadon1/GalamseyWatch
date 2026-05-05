@@ -1,0 +1,66 @@
+# GalamseyWatch unified v4 — MULTITASK LoRA (action + grounding + description
+# all in one fine-tune, on top of v9-e3 perception base).
+#
+# v3 trained an action-only LoRA on v9-e3 and partially overwrote v9-e3's
+# grounding/description ability (verified empirically: v3 emits malformed JSON
+# for grounding prompts and hallucinates for description prompts).
+#
+# v4 keeps the same base + LoRA hyperparams as v3 but feeds a small, balanced
+# multitask mixture (1,327 rows: 327 action / 500 grounding / 500 description)
+# so the LoRA learns action selection AND preserves perception in one pass.
+#
+# Same r=16 / alpha=32 / lr=2e-5 / 15 epochs as v3 — the only change is the
+# data mixture. If action accuracy on the 99-tile eval holds at >= v3's 76.8%
+# AND grounding IoU + description BLEU are within a few points of v9-e3,
+# v4 replaces the v9-e3 + v3 two-checkpoint setup with a single weight set.
+
+project_name: "galamsey-unified-v4-multitask-lora"
+model_name: "/galamsey/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-20260418_165633/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-e3s35439-20260418_165633"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/unified_v4_multitask/galamsey_unified_v4_multitask_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/unified_v4_multitask/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 15
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  eval_on_start: true
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  logging_steps: 5
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: true
+  r: 16
+  lora_alpha: 32
+
+# Action eval only during training (fast, ~30 tokens per gen). Perception
+# evals (grounding IoU, description BLEU) run as a separate post-training
+# step against the final checkpoint — keeps per-epoch eval cheap.
+benchmarks:
+  max_new_tokens: 32
+  image_root: "/galamsey/data/unified_v2/images"
+  benchmarks:
+    - name: "unified_v4_action_bleu"
+      path: "/galamsey/data/unified_v2/galamsey_unified_v2_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 32
+      limit: 200
+
+modal:
+  app_name: "galamsey-unified-v4-multitask"
+  gpu: "H100"
+  timeout: 7200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false
