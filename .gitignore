@@ -1,4 +1,23 @@
 # =====================================================================
+# Internal planning / results docs (kept locally, not on public repo).
+# Canonical artifacts live on HuggingFace (HF cards) or in the repo itself
+# (results visible via the blog post + eval scripts).
+# =====================================================================
+docs/UNIFIED_VLM_PLAN.md
+docs/UNIFIED_VLM_RESULTS.md
+docs/UNIFIED_VLM_VALIDATION.md
+docs/hf_dataset_card_unified_decisions.md
+docs/hf_model_card_unified_v3.md
+docs/hf_model_card_unified_v4_1.md
+docs/hf_model_card.md
+docs/hf_model_card_onnx.md
+
+# =====================================================================
+# Substack / external-distribution drafts (locally generated, not tracked)
+# =====================================================================
+docs/blog_unified_vlm_substack.md
+
+# =====================================================================
 # OS / editor cruft
 # =====================================================================
 .DS_Store
