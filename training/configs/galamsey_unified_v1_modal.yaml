@@ -1,0 +1,59 @@
+# GalamseyWatch unified v1 — single-model perception+policy SFT.
+#
+# Phase A.3 of the agentic-EO research plan. Tests whether a fine-tuned
+# LFM2.5-VL-450M can match the two-layer (450M perception + 2.6B policy)
+# system on bandwidth-aware downlink decisions.
+#
+# Trains LoRA on the base LFM2.5-VL-450M (NOT stacked on v9-e3 perception
+# fine-tune yet — first run is the simplest path to a yes/no answer).
+# 151 train examples / 39 eval, stratified by action; ~10 epochs.
+
+project_name: "galamsey-unified-v1"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/unified_v1/galamsey_unified_v1_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01  # real eval JSONL is in the benchmarks block; this just satisfies leap-finetune's >0 check
+  image_root: "/galamsey/data/unified_v1/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 10
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  eval_on_start: true
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  logging_steps: 5
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: true
+
+# Eval JSONL is exposed as a benchmark so leap-finetune runs it automatically.
+# `bleu` against the JSON action string is a rough proxy for action correctness;
+# the real action-match metric will be computed after training via
+# orchestrator/scripts/benchmark_policies.py (Phase A.4).
+benchmarks:
+  max_new_tokens: 128
+  image_root: "/galamsey/data/unified_v1/images"
+  benchmarks:
+    - name: "unified_v1_action_bleu"
+      path: "/galamsey/data/unified_v1/galamsey_unified_v1_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 128
+      limit: 200
+
+modal:
+  app_name: "galamsey-unified-v1"
+  gpu: "H100"
+  timeout: 7200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

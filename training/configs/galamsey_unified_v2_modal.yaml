@@ -1,0 +1,61 @@
+# GalamseyWatch unified v2 — action-only target + class-balanced oversampling.
+#
+# v1 (10 epochs, LoRA r=8, full JSON+reason target, 151 examples) collapsed
+# to {discard, flag, unparseable} only — never produced downlink/hires/neighbor.
+# Final accuracy 38.5% on 39-example eval, BELOW the 56% always-discard floor.
+#
+# v2 fixes:
+#   1. Assistant target is just `{"action": "<action>"}` — 100% of LM loss
+#      hits the action prediction, not diluted across ~150 reason tokens.
+#   2. Class-balanced oversampling: 87 / 80 / 80 / 80 (discard / flag /
+#      downlink / hires) instead of 87 / 35 / 27 / 2.
+#   3. LoRA r=16 (was r=8) for more capacity.
+#   4. 15 epochs (was 10) for more time on the harder boundaries.
+
+project_name: "galamsey-unified-v2"
+model_name: "lfm2.5-VL-450M"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/unified_v2/galamsey_unified_v2_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/unified_v2/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 15
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  eval_on_start: true
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  logging_steps: 5
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: true
+  r: 16
+  lora_alpha: 32
+
+benchmarks:
+  max_new_tokens: 32  # action-only target is short
+  image_root: "/galamsey/data/unified_v2/images"
+  benchmarks:
+    - name: "unified_v2_action_bleu"
+      path: "/galamsey/data/unified_v2/galamsey_unified_v2_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 32
+      limit: 200
+
+modal:
+  app_name: "galamsey-unified-v2"
+  gpu: "H100"
+  timeout: 7200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false

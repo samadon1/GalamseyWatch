@@ -16,8 +16,12 @@ import httpx
 logger = logging.getLogger(__name__)
 
 from .aoi import plan_grid
-from .models.agent import AGENT, build_tile_prompt
+from .models.agent import build_tile_prompt, get_default_agent
 from .models.vlm import VLM, VlmBox, VlmResult
+
+# Resolved once at module load. Production default is LFM2-2.6B; alternatives
+# (text-only LFM2.5-VL, unified SFT'd VLM) plug in via the POLICY_AGENT env var.
+_AGENT = get_default_agent()
 from .schema import (
     AgentDecidedEvent,
     AgentThinkingEvent,
@@ -117,7 +121,7 @@ async def _agent_decision(
         bandwidth_remaining_kb=bandwidth_remaining_kb,
         bandwidth_total_kb=bandwidth_total_kb,
     )
-    decision = await AGENT.decide(prompt)
+    decision = await _AGENT.decide(prompt)
     return decision.action, decision.reason, decision.decision_ms
 
 

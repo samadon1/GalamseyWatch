@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 import logging
 import os
 import re
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +279,22 @@ class AgentDecision:
     decision_ms: int
 
 
+@runtime_checkable
+class PolicyAgent(Protocol):
+    """Per-tile tool-calling policy.
+
+    Concrete implementations:
+      - ``LFM2Agent`` (current): LFM2-2.6B emitting Pythonic-bracket tool calls.
+      - ``UnifiedVLMAgent`` (planned, Phase A): SFT'd LFM2.5-VL-450M emitting JSON.
+      - ``LFM25VLTextOnlyAgent`` (planned, Phase B): base LFM2.5-VL-450M, text-only tool calling.
+
+    All implementations consume the same ``build_tile_prompt`` output and return
+    an ``AgentDecision`` so the pass loop is policy-agnostic.
+    """
+
+    async def decide(self, tile_context: str) -> AgentDecision: ...
+
+
 # --- LFM2 agent ----------------------------------------------------------
 
 class LFM2Agent:
@@ -359,10 +377,28 @@ class LFM2Agent:
             started = perf_counter()
             raw = await asyncio.to_thread(self._generate_sync, tile_context)
             elapsed_ms = int((perf_counter() - started) * 1000)
-        return _parse_response(raw, elapsed_ms)
+        return _parse_lfm2_response(raw, elapsed_ms)
 
 
 AGENT = LFM2Agent()
+
+
+# --- Policy factory ------------------------------------------------------
+
+def get_default_agent() -> PolicyAgent:
+    """Return the configured policy agent.
+
+    Selection via the ``POLICY_AGENT`` env var. Default is the production
+    LFM2-2.6B path so this refactor is non-breaking.
+
+    Future Phase A/B agents (unified VLM, text-only LFM2.5-VL) plug in here.
+    """
+    kind = os.environ.get("POLICY_AGENT", "lfm2_2_6b").lower()
+    if kind in {"lfm2_2_6b", "lfm2"}:
+        return AGENT
+    raise ValueError(
+        f"Unknown POLICY_AGENT={kind!r}; expected one of: lfm2_2_6b"
+    )
 
 
 # --- Parsing -------------------------------------------------------------
@@ -372,9 +408,13 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 
+_VALID_ACTIONS: frozenset[str] = frozenset(
+    {"flag", "request_neighbor", "request_hires", "downlink", "discard"}
+)
 
-def _parse_response(raw: str, elapsed_ms: int) -> AgentDecision:
-    """Extract the tool call + free-form reasoning from a generation.
+
+def _parse_lfm2_response(raw: str, elapsed_ms: int) -> AgentDecision:
+    """Extract a Pythonic-bracket tool call (LFM2 format) plus free-form reasoning.
 
     Falls back to ``discard`` with a self-describing reason if the model
     didn't emit a parseable tool call. We surface this rather than silently
@@ -457,6 +497,72 @@ def _parse_pythonic_call(text: str) -> tuple[str | None, dict]:
         except (ValueError, SyntaxError):
             kwargs[kw.arg] = None
     return name, kwargs
+
+
+def _parse_json_response(raw: str, elapsed_ms: int) -> AgentDecision:
+    """Parse a JSON tool call (the format planned for the unified VLM agent).
+
+    Expected shape: ``{"action": "<one of _VALID_ACTIONS>", "reason": "...",
+    "direction": "north|south|east|west" (optional, only for request_neighbor)}``.
+
+    Tolerates leading/trailing prose around the JSON object. Falls back to
+    ``discard`` with a self-describing reason on any parse failure so eval can
+    count parser failures honestly, mirroring the LFM2 parser's contract.
+    """
+    text = raw.strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        return AgentDecision(
+            action="discard",
+            tool_name="(no_json)",
+            reason="agent emitted no JSON object; default discard",
+            raw_text=raw,
+            decision_ms=elapsed_ms,
+        )
+
+    try:
+        obj = json.loads(text[start : end + 1])
+    except json.JSONDecodeError as e:
+        return AgentDecision(
+            action="discard",
+            tool_name="(json_decode_error)",
+            reason=f"JSON parse failed: {e}",
+            raw_text=raw,
+            decision_ms=elapsed_ms,
+        )
+
+    if not isinstance(obj, dict):
+        return AgentDecision(
+            action="discard",
+            tool_name="(not_object)",
+            reason=f"agent JSON was not an object: {type(obj).__name__}",
+            raw_text=raw,
+            decision_ms=elapsed_ms,
+        )
+
+    action = str(obj.get("action", "")).strip().lower()
+    if action not in _VALID_ACTIONS:
+        return AgentDecision(
+            action="discard",
+            tool_name=f"(invalid_action:{action})",
+            reason=f"agent emitted unknown action {action!r}; default discard",
+            raw_text=raw,
+            decision_ms=elapsed_ms,
+        )
+
+    reason = str(obj.get("reason", "")).strip() or "(no reason given)"
+    direction = obj.get("direction")
+    if direction:
+        reason = f"[{direction}] {reason}"
+
+    return AgentDecision(
+        action=action,
+        tool_name=action,
+        reason=reason,
+        raw_text=raw,
+        decision_ms=elapsed_ms,
+    )
 
 
 def build_tile_prompt(

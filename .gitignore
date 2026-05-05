@@ -102,9 +102,22 @@ app/public/demo_pack/
 training/notebooks/
 training/_DEV_NOTES.md
 
+# Track the unified-v1 labels JSONL — irreproducible research artifact (190
+# hand-labeled tiles via inline Claude Code labeling, plus 19 validation tiles
+# documented in docs/UNIFIED_VLM_VALIDATION.md). Images + derived train/eval
+# JSONLs stay ignored (regenerable via fetch_unified_corpus.py +
+# build_unified_v{1,2}_sft_dataset.py with seed=42). Negations only work when
+# the parent dir is also re-included, so we whitelist the file path explicitly.
+!training/data/
+training/data/*
+!training/data/unified_v1/
+training/data/unified_v1/*
+!training/data/unified_v1/labels.jsonl
+
 # Vendored references — separate upstream git repos, not part of this codebase.
-# The orchestrator hits DPhi's hosted SimSat (Cloud Run) by default; clone the
-# repo locally only if you want the reference simulator running on your box:
+# The orchestrator hits a self-hosted Cloud Run SimSat (URL hardcoded in
+# agentic_eo/simsat_client.py; override via SIMSAT_BASE_URL env var). Clone
+# the upstream simulator locally only if you want it running on your own box:
 #   git clone https://github.com/DPhi-Space/SimSat
 SimSat/
 training/reference/
