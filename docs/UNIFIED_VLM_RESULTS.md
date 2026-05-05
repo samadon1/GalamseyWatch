@@ -356,12 +356,38 @@ Three honest gaps in the experiment as presented:
   robustness. The 60 new tiles in this round were drawn from the same
   sampler at indices the training set never saw — they're held-out but
   not from disjoint AOIs.
-* **No GRPO or other RL post-SFT.** The v3 model is the SFT-only
-  configuration. Action selection has a verifiable reward (does the
-  predicted action equal the gold action?) which is exactly what GRPO is
-  good at amplifying. The natural follow-up is GRPO from the v3
-  checkpoint, especially targeting the rare-class boundaries where SFT
-  plateaued.
+* **GRPO post-SFT — attempted, three integration gaps documented.** We
+  built the GRPO training pipeline from the v3 checkpoint
+  (`training/scripts/train_unified_v4_grpo_modal.py`) and ran into three
+  distinct compatibility issues between trl 1.3.0's multimodal GRPOTrainer
+  and LFM2.5-VL's processor and attention pipeline:
+
+  1. trl's `GRPOTrainer._get_per_token_logps_and_entropies` and
+     `_get_last_hidden_state` have an explicit allowlist of vision kwargs
+     (`pixel_values`, `image_grid_thw`, `pixel_attention_mask`,
+     `image_sizes`, `image_position_ids`) that does not include
+     `spatial_shapes`. LFM2.5-VL's NaFlex SigLIP2 encoder produces this
+     kwarg, so forward fails immediately with a `TypeError`. We patched
+     this by subclassing both methods and adding `spatial_shapes` to the
+     model_inputs dict with the same per-image slicing the existing
+     kwargs use (~80 lines).
+
+  2. SigLIP2's SDPA attention path triggers a cuDNN graph error under
+     GRPO's variable batch shapes (K=4 sampled completions per prompt).
+     `attn_implementation="eager"` avoids it.
+
+  3. After (1) and (2), training fails on a CUDA device-side assert in
+     `transformers/masking_utils.py::create_bidirectional_mask` during
+     the SigLIP2 encoder's attention-mask construction. This needs a
+     deeper fix — either an upstream transformers patch or a custom
+     collator that pre-aligns the mask shapes before the trainer sees
+     them. We did not pursue further given the v3 SFT result is already
+     statistically robust.
+
+  Worth filing upstream with trl as part of a multimodal GRPO support PR.
+  Finding (1) is a clean small fix; (3) reproduces deterministically on
+  the script and would benefit from someone who has worked with the
+  transformers masking_utils code.
 
 For the result reported here — v1 / v2 / v3 SFT, four-way comparison on
 two eval scales (39 and 99 tiles) — the experiment is closed.
