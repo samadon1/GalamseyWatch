@@ -1,0 +1,60 @@
+# GalamseyWatch unified v3 — STACKED LoRA (action-policy LoRA on top of v9-e3
+# perception fine-tune).
+#
+# v2 trained the action LoRA on the bare LFM2.5-VL-450M base, so it had to
+# relearn what galamsey looks like AND learn the action policy on 327 examples.
+# v3 stacks the action LoRA on top of the merged v9-e3 weights — perception is
+# pre-learned (4× D4 augmentation, full FT on SmallMinesDS), and the new LoRA
+# only has to learn action selection. SMoLoRA / ColPro recipe.
+#
+# Same data, same LoRA config (r=16), same epochs as v2 — only the base model
+# differs. Direct comparison: if v3 > v2 on action-match accuracy, the stacked
+# approach pays off.
+
+project_name: "galamsey-unified-v3-stacked-lora"
+model_name: "/galamsey/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-20260418_165633/lfm2.5-VL-450M-vlm_sft-galamsey_v-all-lr2em05-w0p0-no_lora-e3s35439-20260418_165633"
+training_type: "vlm_sft"
+
+dataset:
+  path: "/galamsey/data/unified_v2/galamsey_unified_v2_train.jsonl"
+  type: "vlm_sft"
+  test_size: 0.01
+  image_root: "/galamsey/data/unified_v2/images"
+
+training_config:
+  extends: "DEFAULT_VLM_SFT"
+  num_train_epochs: 15
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 2
+  learning_rate: 2e-5
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  eval_on_start: true
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  logging_steps: 5
+
+peft_config:
+  extends: "DEFAULT_VLM_LORA"
+  use_peft: true
+  r: 16
+  lora_alpha: 32
+
+benchmarks:
+  max_new_tokens: 32
+  image_root: "/galamsey/data/unified_v2/images"
+  benchmarks:
+    - name: "unified_v3_action_bleu"
+      path: "/galamsey/data/unified_v2/galamsey_unified_v2_eval.jsonl"
+      metric: "bleu"
+      max_new_tokens: 32
+      limit: 200
+
+modal:
+  app_name: "galamsey-unified-v3-stacked"
+  gpu: "H100"
+  timeout: 7200
+  output_volume: "galamsey"
+  output_dir: "/galamsey"
+  detach: false
