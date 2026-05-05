@@ -9,6 +9,23 @@ Two artifacts in one repo, both built around a fine-tuned vision-language model 
 
 The contribution of the orchestrator isn't the galamsey detector. That's the worked example. The contribution is the **architecture**: a four-interface contract (`VLMProvider`, `AgentPolicy`, `ImagerySource`, `Task`) that any fork can reskin in a single day for wildfire detection, illegal fishing, oil spills, etc.
 
+## Latest: unified VLM replaces the two-layer pipeline
+
+A follow-up result from May 2026: a single fine-tuned **450M LFM2.5-VL** picks the action directly, removing the description-string bottleneck between the perception VLM and the LFM2 policy.
+
+| System | Total params | 99-tile action-match accuracy |
+|---|---:|---:|
+| Two-layer (bare) | 3.05 B | 65.7 % |
+| Two-layer (rich-context) | 3.05 B | 63.6 % |
+| **Unified VLM** ([`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)) | **450 M** | **76.8 %** |
+
+**+11.1 pp over the strongest baseline at 6.8× fewer parameters.** The win comes from two design choices: (a) the assistant target is action-only (concentrates LM loss on the prediction), (b) the action LoRA stacks on top of the [`samwell/galamsey-v9-e3`](https://huggingface.co/samwell/galamsey-v9-e3) perception fine-tune (frees capacity for action selection).
+
+Resources:
+- **Blog post (Cookbook-style recipe):** [`docs/blog_unified_vlm.md`](./docs/blog_unified_vlm.md)
+- **Model:** [`samwell/galamsey-unified-v3`](https://huggingface.co/samwell/galamsey-unified-v3)
+- **Dataset (250 hand-labeled tiles):** [`samwell/galamsey-unified-decisions`](https://huggingface.co/datasets/samwell/galamsey-unified-decisions)
+
 ---
 
 ## How the two artifacts compose
